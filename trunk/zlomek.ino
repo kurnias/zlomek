@@ -1,13 +1,15 @@
 //************************************************************************//
 // Złomek - kumpel Heńka, projekt pogladowy obsługi DDS AD9850, 
 // wyświetlacza nokii 5110 i jakiegoś enkodera.
-// Projekt otwarty http://sp-hm.pl
+// Projekt otwarty http://sp-hm.pl/thread-2164.html
 // SQ9MDD -  początkowy szkielet programu v 1.0.0
 // S_____ - 
 // S_____ - 
 //
 //************************************************************************//
 /* CHANGELOG (nowe na górze)
+ 2014.10.19 - v.1.0.4 wprowadzamy pośrednią kilka zmiennych do sekcji konfiguracji
+ drobne czyszczenie kodu, poprawki w komentarzach
  2014.10.15 - v.1.0.3 limit czestotliwości górnej i dolnej
  przeniesienie wysyłania częstotliwości do DDS do osobnej funkcji
  2014.10.14 - v.1.0.2 zmiana kroku syntezy
@@ -16,6 +18,7 @@
  2014.05.22 - pierwsza wersja kodu warsztaty arduino w komorowie.  
  */
 //************************************************************************//
+
 //podłączamy bibliotekę syntezera
 #include <AH_AD9850.h>
 
@@ -48,57 +51,63 @@ extern uint8_t MediumNumbers[];//czcionka z biblioteki
 //AO - w lewo
 //A1 - w prawo
 //nalezy pamiętać o kondensatorach (100nF) pomiędzy liniami encodera a masą
-RotaryEncoder encoder(A0,A1,5,6,1000);
+RotaryEncoder encoder(A0,A1,5,6,1000);  
 
-//zmienne do modyfikacji
+//*****************************************************************************************************************************
+//zmienne do modyfikacji każdy ustawia to co potrzebuje
 const int kontrast = 70;                     //kontrast wyświetlacza
 const int pulses_for_groove = 2;             //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
 const int step_input = A2;                   //wejście do podłączenia przełącznika zmiany kroku
-const long low_frequency_limit = 50000;      //dolny limit częstotliwości
-const long high_frequency_limit = 30000000;  //górny limit częstotliwości
+const long low_frequency_limit = 3500000;    //dolny limit częstotliwości
+const long high_frequency_limit = 3800000;   //górny limit częstotliwości
+const long start_frequency = 3715000;        //częstotliwość startowa
+const long posrednia = -8000000;             //częstotliwość pośredniej, każdy dobiera swoją w zależności od konstrukcji radia
+//*****************************************************************************************************************************
 
 //zmienne wewnętrzne, 
 //jeśli nie trzeba proszę nie modyfikować
 char buffor[] = "              ";            //zmienna pomocnicza do wyrzucania danych na lcd
-long frequency = 10000000;                   //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
+long frequency = start_frequency;            //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
 long step_value = 100;                       //domyślny krok syntezy
 int enc_sum = 0;                             //zmienna pomocnicza do liczenia impulsów z enkodera
 
 //funkcja do obsługi wyświetlania zmiany częstotliwości
 void show_frequency(){
   lcd.setFont(SmallFont);                    //ustawiamy czcionkę
-  sprintf(buffor,"%08lu",frequency);         //konwersja danych do wyświetlenia (ładujemy longa do stringa
+  sprintf(buffor,"%08lu",frequency);         //konwersja danych do wyświetlenia (ładujemy częstotliwość do stringa i na ekran)
   lcd.print(buffor,CENTER,0);                //wyświetlamy dane na lcd 
 }
 
 //funkcja do wyświetlania aktualnego kroku syntezera
 void show_step(){
   lcd.setFont(SmallFont);                     //ustawiamy czcionkę
-  sprintf(buffor,"%08lu",step_value);         //konwersja danych do wyświetlenia (ładujemy longa do stringa
+  sprintf(buffor,"%08lu",step_value);         //konwersja danych do wyświetlenia (ładujemy krok syntezy do stringa i na ekran)
   lcd.print(buffor,CENTER,8);                 //wyświetlamy dane na lcd (8 oznacza drugi rząd) 
 }
 
 //funkcja zmieniajaca częstotliwość DDS-a
 void set_frequency(int plus_or_minus){
-  if(plus_or_minus == 1){                          //jeśli na plus to dodajemy
-    frequency = frequency + step_value;            //częstotliwość = częstotliwość + krok    
+  if(plus_or_minus == 1){                                                        //jeśli na plus to dodajemy
+    frequency = frequency + step_value;                                          //częstotliwość = częstotliwość + krok    
+  }  
+  else if(plus_or_minus == -1){                                                  //jeśli na minus to odejmujemy
+    frequency = frequency - step_value;                                          //częstotliwość = częstotliwość - krok    
   }
-  else if(plus_or_minus == -1){                    //jeśli na minus to odejmujemy
-    frequency = frequency - step_value;            //częstotliwość = częstotliwość - krok    
-  }
-    frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);              //limitowanie zmiennej            
-    AD9850.set_frequency(frequency);  //ustawiam syntezę na odpowiedniej częstotliwości  
+    frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);   //limitowanie zmiennej 
+    long frequency_to_dds = abs(posrednia + frequency);                          //a tutaj obliczam częstotliwość wynikową 
+    AD9850.set_frequency(frequency_to_dds);                                      //ustawiam syntezę na odpowiedniej częstotliwości  
+    Serial.println(frequency_to_dds);
 }
 
 // setup funkcja odpalana przy starcie
 void setup(){  
-  Serial.begin(9600);                          //uruchamiam port szeregowy w celach diagnostycznych
-  AD9850.set_frequency(0,0,frequency);        //odpalamy syntezer i ustawiamy częstotliwość startową
-  delay(1000);                                //sekunda opóźnienia 
+  Serial.begin(9600);                         //uruchamiam port szeregowy w celach diagnostycznych       
   lcd.InitLCD(kontrast);                      //odpalamy lcd ustawiamy kontrast
-  show_frequency();                           //pokazmy cos na lcd
   pinMode(step_input,INPUT_PULLUP);           //inicjalizujemy wejście zmiany kroku i podciągamy je do plusa
-  show_step();
+  set_frequency(0);                           //odpalamy syntezer i ustawiamy częstotliwość startową 
+  delay(1000);                                //sekunda opóźnienia   
+  show_frequency();                           //pokazujemy częstotliwość na lcd
+  show_step();                                //pokazujemy krok syntezy
 } 
 
 void loop(){  
@@ -145,7 +154,7 @@ void loop(){
   delayMicroseconds(5);                    //małe opóźnienie dla prawidłowego działania enkodera
 }
 
-//testowanie dostępnego RAMU
+//testowanie ilości dostępnego RAMU 
 /*
 int freeRam () {
   extern int __heap_start, *__brkval;
@@ -153,4 +162,3 @@ int freeRam () {
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
 }
 */
-
