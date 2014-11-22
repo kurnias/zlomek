@@ -4,9 +4,11 @@
 // Projekt otwarty http://sp-hm.pl/thread-2164.html
 // SQ9MDD - początkowy szkielet programu v 1.0.0 - 1.0.5
 // SP6IFN - przejście na bibliotekę graficzną i parę zmian 1.0.5 s-metr
-// !!!Miejsce na twój znak !!!
+// !!!Miejsce na twój znak dołącz do nas!!!
 //************************************************************************//
 /* CHANGELOG
+ 2014.10.26 - v.1.0.12 wszystkie klawisze funkcyjne na jednym wejściu, przeniesienie lini TX z wejscia 12 na wejscie 2,
+ przygotowujemy się do wiekszej liczby przycisków i nowych funkcji syntezera
  2014.10.24 - v.1.0.11 czyszczenie kodu, zmiana czcionki RIT, poprawki w komentarzach najmniejszy krok syntezy 50Hz, 
  drobne prace nad optymalizacją kodu
  2014.10.23 - v.1.0.10 dodana obsługa PTT i RIT --uff to wcale nie było proste ;) mam nadzieję że nie zagmatwałem kodu
@@ -65,33 +67,34 @@ RotaryEncoder encoder(A0,A1,5,6,1000);
 
 //*****************************************************************************************************************************
 //zmienne do modyfikacji każdy ustawia to co potrzebuje
-const int step_input = A2;                   //wejście do podłączenia przełącznika zmiany kroku
+const int buttons_input = A2;                //wejście do podłączenia szeregu przełączników
 const int s_metr_port = A5;                  //wejście dla s-metra
-const int rit_swich_input = 2;               //wejście do uruchamiania funkcji RIT
-const int ptt_input = 12;                    //wejście PTT procesor musi wiedzieć czy nadajemy czy odbieramy by zrealizować RIT-a
+const int ptt_input = 2;                     //wejście PTT procesor musi wiedzieć czy nadajemy czy odbieramy by zrealizować RIT-a
 const int contrast = 70;                     //kontrast wyświetlacza
 const int pulses_for_groove = 2;             //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
-const long low_frequency_limit = 3500000;    //dolny limit częstotliwości
-const long high_frequency_limit = 7200000;   //górny limit częstotliwości
-const long start_frequency = 3715000;        //częstotliwość startowa syntezy
-const long if_frequency = -8000000;          //częstotliwość pośredniej, każdy dobiera swoją w zależności od konstrukcji radia
-const int tryb_pracy = 1;                    //tryby pracy: 0-pośrednia, 1-generator, 2-lub wyżej, mnożnik razy 2 lub więcej
+const unsigned long low_frequency_limit = 3500000;    //dolny limit częstotliwości
+const unsigned long high_frequency_limit = 7200000;   //górny limit częstotliwości
+const unsigned long start_frequency = 3715000;        //częstotliwość startowa syntezy
+const unsigned long if_frequency = -8000000;          //częstotliwość pośredniej, każdy dobiera swoją w zależności od konstrukcji radia
+const int mode = 0;                          //tryby pracy: 0-pośrednia, 1-generator, 2-lub wyżej, mnożnik razy 2 lub więcej
 long step_value = 1000;                      //domyślny krok syntezy
-const long s_metr_update_interval = 100;     //interwał odświeżania s-metra w msec
-const long rit_range = 2000;                 //zakres pracy RIT +/- podana wartość, domyślnie 2000Hz max 9999Hz jeśli dasz wiecej posypie się wyświetlanie
-const long rit_step = 50;                    //krok działania RIT-a domyślnie 50Hz
-
-//zmienne wewnętrzne pomocnicze, 
-//jeśli nie trzeba proszę nie modyfikować
+const unsigned long s_metr_update_interval = 100;     //interwał odświeżania s-metra w msec
+const unsigned long rit_range = 2000;                 //zakres pracy RIT +/- podana wartość, domyślnie 2000Hz max 9999Hz jeśli dasz wiecej posypie się wyświetlanie
+const unsigned long rit_step = 50;                    //krok działania RIT-a domyślnie 50Hz
+//*****************************************************************************************************************************
+//zmienne wewnętrzne pomocnicze, czyli zmienne które są nadpisywane automatycznie w trakcie działania programu
+//jeśli nie trzeba proszę ich nie modyfikować. 
 char buffor[] = "              ";            //zmienna pomocnicza do wyrzucania danych na lcd
-long frequency = start_frequency;            //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
+unsigned long frequency = start_frequency;   //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
 int enc_sum = 0;                             //zmienna pomocnicza do liczenia impulsów z enkodera
-long s_metr_update_time = 0;                 //zmienna pomocnicza do przechowywania czasu następnego uruchomienia s-metra
-long frequency_to_dds = 0;                   //zmienna pomocnicza przechowuje częstotliwość którą wysyłam do DDS-a
+unsigned long s_metr_update_time = 0;        //zmienna pomocnicza do przechowywania czasu następnego uruchomienia s-metra
+unsigned long frequency_to_dds = 0;          //zmienna pomocnicza przechowuje częstotliwość którą wysyłam do DDS-a
 int rit_state = 0;                           //stan RIT-a 0-rit off, 1-rit on, 2-rit on enkoder odchyłkę rit 
 boolean ptt_on = false;                      //stan przycisku PTT
 boolean last_ptt_state = false;              //poprzedni stan PTT potrzebne do wykrywania zmianu stanu PTT
-long rit_poprawka = 0;                       //domyślna wartość poprawki
+unsigned long rit_frequency = 0;             //domyślna wartość poprawki
+boolean step_button_pressed = false;         //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia
+boolean rit_button_pressed = false;          //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia
 //*****************************************************************************************************************************
 
 //FUNKCJE
@@ -109,11 +112,11 @@ void show_frequency(){
   }
   if(rit_state == 1){                              //jeśli RIT jest włączony i enkoder pracuje jako RIT wyświetlamy zmiany częstotliwości RIT-a
     myGLCD.setFont(TinyFont);                      //ustawiamy małą czcionkę
-    sprintf(buffor,"%05lu",abs(rit_poprawka));     //przygotowujemy bufor z zawartością aktualnej wartości RIT
+    sprintf(buffor,"%05lu",abs(rit_frequency));     //przygotowujemy bufor z zawartością aktualnej wartości RIT
     myGLCD.print(buffor,CENTER,2);                 //drukowanie na lcd
-    if(rit_poprawka < 0){                          //obsługa znaku poprawki RIT jeśli mniejsza niż 0
+    if(rit_frequency < 0){                          //obsługa znaku poprawki RIT jeśli mniejsza niż 0
       myGLCD.print("-",28,2);                      //drukujemy minus
-    }else if(rit_poprawka > 0){                    //jeśli większa niż zero to
+    }else if(rit_frequency > 0){                    //jeśli większa niż zero to
       myGLCD.print("+",28,2);                      //drukujemy plus
     }                                        
     else{
@@ -160,25 +163,25 @@ void set_frequency(int plus_or_minus){
   }
   if(rit_state == 1){                                                              //jesli obsługuję rita
     if(plus_or_minus == 1){                                                        //jeśli na plus to dodajemy
-      rit_poprawka = rit_poprawka + rit_step;                                      //częstotliwość poprawki zwiększam o krok poprawki
+      rit_frequency = rit_frequency + rit_step;                                    //częstotliwość poprawki zwiększam o krok poprawki
     }  
     else if(plus_or_minus == -1){                                                  //jeśli na minus to odejmujemy
-      rit_poprawka = rit_poprawka - rit_step;                                      //częstotliwość poprawki zmniejszam o krok poprawki    
+      rit_frequency = rit_frequency - rit_step;                                    //częstotliwość poprawki zmniejszam o krok poprawki    
     }
-  rit_poprawka = constrain(rit_poprawka,-rit_range,rit_range);                     //limitujemy poprawkę RIT do wartości z konfiguracji
+  rit_frequency = constrain(rit_frequency,-rit_range,rit_range);                   //limitujemy poprawkę RIT do wartości z konfiguracji
 }
-  int poprawka = 0;                                                                //lokalna zmienna pomocnicza
+  int correction = 0;                                                              //lokalna zmienna pomocnicza
   if(rit_state != 0 && ptt_on == false){                                           //jeśli jesteśmy w trybie włączonego RIT-a
-    poprawka = rit_poprawka;                                                       //lokalna zmienna pomocnicza przyjmuje wartość RIT by można to było dodać do czestotliwości 
+    correction = rit_frequency;                                                    //lokalna zmienna pomocnicza przyjmuje wartość RIT by można to było dodać do czestotliwości 
   }
   frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);       //limitowanie zmiennej częstotliwości tej na wyświetlaczu 
-  if(tryb_pracy == 0){                                                             //zmiana trybu pracy syntezy 0 - pośrednia
-    frequency_to_dds = abs(if_frequency + frequency + poprawka);                      //a tutaj obliczam częstotliwość wynikową dla pracy w trybie pośredniej + ew.poprawka z RIT
+  if(mode == 0){                                                                   //zmiana trybu pracy syntezy 0 - pośrednia
+    frequency_to_dds = abs(if_frequency + frequency + correction);                 //a tutaj obliczam częstotliwość wynikową dla pracy w trybie pośredniej + ew.poprawka z RIT
   }else{                                                                           //tryby pracy 1 - mnożnik * 1 generator lub 2 i więcej mnożnik
-    frequency_to_dds = (frequency + poprawka) * tryb_pracy;                        //mnożymy częstotliwość przez tryb pracy no i pamiętamy o poprawce
+    frequency_to_dds = (frequency + correction) * mode;                            //mnożymy częstotliwość przez tryb pracy no i pamiętamy o poprawce
   }
   AD9850.set_frequency(frequency_to_dds);                                          //ustawiam syntezę na odpowiedniej częstotliwości  
-  Serial.println(frequency_to_dds);                                              //debugowanie
+  Serial.println(frequency_to_dds);                                                //debugowanie
 }
 
 //wskaźnik s-metra by nie przeszkadzał w pracy enkodera zrobiony jest na pseudo współdzieleniu czasu.
@@ -219,7 +222,7 @@ void rit_swich(){
      myGLCD.clrLine(28, 8, 51, 8);              //anauluję podkreślenie wartości RIT
      myGLCD.clrLine(72,0,83,0);                 //anuluję oznaczenie rit
      myGLCD.clrLine(72,8,83,8);                 //anuluję oznaczenie rit
-     sprintf(buffor,"        ",rit_poprawka);   //czyszczę miejsce po wartości RIT gdy pracujemy bez niego
+     sprintf(buffor,"        ",rit_frequency);  //czyszczę miejsce po wartości RIT gdy pracujemy bez niego
      myGLCD.print(buffor,CENTER,2);             //przygotowuję dane do wysyłki na LCD
   break; 
  }
@@ -259,11 +262,10 @@ void show_template(){
 void setup(){  
   pinMode(s_metr_port,INPUT);             //ustawiam tryb pracy wejścia s-metra
   pinMode(ptt_input,INPUT_PULLUP);        //ustawiam tryb pracy wejścia PTT
-  pinMode(rit_swich_input,INPUT_PULLUP);  //ustawiam tryb pracy wejścia przełącznika RIT
   Serial.begin(9600);                     //uruchamiam port szeregowy w celach diagnostycznych       
   myGLCD.InitLCD(contrast);               //odpalamy lcd ustawiamy kontrast
   myGLCD.clrScr();                        //czyścimy ekran z ewentualnych śmieci
-  pinMode(step_input,INPUT_PULLUP);       //inicjalizujemy wejście zmiany kroku i podciągamy je do plusa
+  pinMode(buttons_input,INPUT);           //inicjalizujemy wejście do którego mamy wpięte przyciski
   set_frequency(0);                       //odpalamy syntezer i ustawiamy częstotliwość startową 
   delay(1000);                            //sekunda opóźnienia   
   show_frequency();                       //pokazujemy częstotliwość na lcd
@@ -279,6 +281,23 @@ void loop(){
     ptt_on = false;                        //ustawiam zmienną pomocniczą na fałsz (zdejmuję flagę)
   }
   ptt_switch();                            //wywołuję funkcję do obsługi PTT  
+  
+  //obsługa przycisków
+  if(analogRead(buttons_input) < 1000){         //jeśli cokolwiek jest wciśnięte to sprawdźmy co to
+    delay(10);                                  //male opoźnienie by się ustabilizował stan
+    int adc_value = analogRead(buttons_input);
+    Serial.println(adc_value);                  //w tym miejscu sprawdzisz jaka wartość ma wcisnięty klawisz patrz port RS232 debugowanie
+      if(adc_value < 10){                       //pierwszy przycisk
+       step_button_pressed = true;
+      }
+      if(adc_value > 10 && adc_value < 100){    //drugi przycisk
+        rit_button_pressed = true;
+      }
+    
+  }else{                                  //w każdym innym przypadku resetujemy flagi przycisków
+      step_button_pressed = false;        //reset przycisku step
+      rit_button_pressed = false;         //przycisk rita
+  }
 
   //obsługa enkodera
   int enc = encoder.readEncoder();        //czytamy wartość z encodera
@@ -303,9 +322,9 @@ void loop(){
   delayMicroseconds(5);                   //małe opóźnienie dla prawidłowego działania enkodera
   
   //obsługa klawisza zmiany kroku
-  if(digitalRead(step_input) == LOW){     //sprawdzanie czy przycisk jest wcisnięty
+  if(step_button_pressed == true){        //sprawdzanie czy przycisk jest wcisnięty
     delay(50);                            //zwłoka by wyeliminować drgania styków
-    if(digitalRead(step_input) == LOW){   //jeśli klawisz nadal jest wcisnięty (czyli nie są to zakłócenia)
+    if(step_button_pressed == true){      //jeśli klawisz nadal jest wcisnięty (czyli nie są to zakłócenia)
       switch(step_value){                 //za pomocą instrukcji swich zmieniamy krok
       case 100000:                        //jeśli krok jest 100kHz ustaw 10kHz
         step_value = 10000;
@@ -326,9 +345,9 @@ void loop(){
   }
  
   //obsługa klawisza włączenia funkcji RIT
-  if(digitalRead(rit_swich_input) == LOW){    //jeśli klawisz wciśnięty
+  if(rit_button_pressed == true){             //jeśli klawisz wciśnięty
    delay(50);                                 //zwłoka by wyeliminować drgania styków
-    if(digitalRead(rit_swich_input) == LOW){  //jeśli nadal wciśnięty (eliminuję drgania styku)
+    if(rit_button_pressed == true){           //jeśli nadal wciśnięty (eliminuję drgania styku)
        switch(rit_state){                     //przełącznik trybu pracy z RIT
         case 1:                               //jesli tryb jest 1 (enkoder pracuje jako rit wartość RIT dodaję do częstotliwości)  
          rit_state = 2;                       //ustaw tryb 2
