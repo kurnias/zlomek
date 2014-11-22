@@ -8,6 +8,7 @@
 //
 //************************************************************************//
 /* CHANGELOG (nowe na górze)
+ 2014.10.14 - zmiana kroku syntezy
  2014.10.12 - początek projektu wspólnego na sp-hm.pl
  wymiana biblioteki wyświetlacza lcd na LCDD5110 basic
  2014.05.22 - pierwsza wersja kodu warsztaty arduino w komorowie.  
@@ -47,58 +48,99 @@ extern uint8_t MediumNumbers[];//czcionka z biblioteki
 //nalezy pamiętać o kondensatorach (100nF) pomiędzy liniami encodera a masą
 RotaryEncoder encoder(A0,A1,5,6,1000);
 
-//kontrast wyświetlacza
+//zmienne do modyfikacji
 const int kontrast = 70;                     //kontrast wyświetlacza
 const int pulses_for_groove = 2;             //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
+const int step_input = A2;                   //wejście do podłączenia przełącznika zmiany kroku
 
-//zmienna pomocnicza do wyrzucania danych na lcd
-char buffor[] = "              ";
+//zmienne wewnętrzne, 
+//jeśli nie trzeba proszę nie modyfikować
+char buffor[] = "              ";            //zmienna pomocnicza do wyrzucania danych na lcd
+long frequency = 10000000;                   //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
+long step_value = 100;                       //domyślny krok syntezy
+int enc_sum = 0;                             //zmienna pomocnicza do liczenia impulsów z enkodera
 
-//zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
-long czestotliwosc = 10000000;
-
-//zmienna pomocnicza do liczenia impulsów z enkodera
-int enc_sum = 0;
+//funkcja do zmiany kroku syntezy
 
 //funkcja do obsługi wyświetlania zmiany częstotliwości
 void show_frequency(){
   lcd.setFont(SmallFont);                    //ustawiamy czcionkę
-  sprintf(buffor,"%08lu",czestotliwosc);   //konwersja danych do wyświetlenia (ładujemy longa do stringa
+  sprintf(buffor,"%08lu",frequency);         //konwersja danych do wyświetlenia (ładujemy longa do stringa
   lcd.print(buffor,CENTER,0);                //wyświetlamy dane na lcd 
 }
 
+//funkcja do wyświetlania aktualnego kroku syntezera
+void show_step(){
+  lcd.setFont(SmallFont);                     //ustawiamy czcionkę
+  sprintf(buffor,"%08lu",step_value);         //konwersja danych do wyświetlenia (ładujemy longa do stringa
+  lcd.print(buffor,CENTER,8);                 //wyświetlamy dane na lcd (8 oznacza drugi rząd) 
+}
+
 // setup funkcja odpalana przy starcie
-void setup(){
-  //uruchamiam port szeregowy w celach diagnostycznych
-  Serial.begin(9600);
-  //odpalamy syntezer i ustawiamy częstotliwość startową
-  AD9850.set_frequency(0,0,czestotliwosc);    //set power=UP, phase=0, 1MHz frequency
+void setup(){  
+  Serial.begin(9600);                          //uruchamiam port szeregowy w celach diagnostycznych
+  AD9850.set_frequency(0,0,frequency);        //odpalamy syntezer i ustawiamy częstotliwość startową
   delay(1000);                                //sekunda opóźnienia 
   lcd.InitLCD(kontrast);                      //odpalamy lcd ustawiamy kontrast
   show_frequency();                           //pokazmy cos na lcd
+  pinMode(step_input,INPUT_PULLUP);           //inicjalizujemy wejście zmiany kroku i podciągamy je do plusa
+  show_step();
 } 
 
-void loop(){
-  //czytamy wartość z encodera
-  int enc = encoder.readEncoder(); 
+void loop(){  
+  int enc = encoder.readEncoder();        //czytamy wartość z encodera
   if(enc != 0) {                          //jeśli wartość jest inna niż zero sumujemy
     enc_sum = enc_sum + enc;              //jeden ząbek encodera to +2 lub -2 tutaj to zliczam
-    Serial.println(enc);
+    Serial.println(enc);                  //wyrzucamy na port rs-232 wartość licznika enkodera (debugowanie)
   } 
+  
+  //obsługa klawisza zmiany kroku
+  if(digitalRead(step_input) == LOW){     //sprawdzanie czy przycisk jest wcisnięty
+   delay(100);                            //odczekajmy 100msec
+    if(digitalRead(step_input) == LOW){   //jeśli klawisz nadal jest wcisnięty (czyli nie są to zakłócenia)
+       switch(step_value){                //za pomocą instrukcji swich zmieniamy krok
+          case 100000:                    //jeśli krok jest 100kHz ustaw 100Hz
+            step_value = 100;
+          break;
+          case 10000:                     //jeśli krok jest 10kHz ustaw 100kHz
+            step_value = 100000;
+          break;
+          case 1000:                      //jeśli krok jest 1kHz ustaw 10kHz
+            step_value = 10000;
+          break;
+          case 100:                       //jeśli krok jest 100Hz ustaw 1kHz
+            step_value = 1000;
+          break;
+       }
+    }
+    show_step();                          //pokazuję zmianę kroku na lcd
+    delay(300);                           //zwłoka po zmianie kroku 300msec
+  }
+  
   //jesli zaliczyliśmy ząbek dodajemy lub odejmujemy do częstotliwości wartość kroku (na razie na sztywno 100Hz)
   if(enc_sum >= pulses_for_groove){
-    czestotliwosc = czestotliwosc + 100;  //docelowo czestotliwosc = czestotliwosc + krok
+    frequency = frequency + step_value;  //docelowo frequency = frequency + krok
 
-    AD9850.set_frequency(czestotliwosc);  //ustawiam syntezę na odpowiedniej częstotliwości
+    AD9850.set_frequency(frequency);  //ustawiam syntezę na odpowiedniej częstotliwości
     show_frequency();                     //drukuję częstotliwość na wyświetlaczu za pomocą gotowej funkcji
     enc_sum = 0;                          //reset zmiennej zliczającej impulsy enkodera
   }
   if(enc_sum <= -(pulses_for_groove)){
-    czestotliwosc = czestotliwosc - 100;  //docelowo czestotliwosc = czestotliwosc - krok      
-    AD9850.set_frequency(czestotliwosc);  //ustawiam syntezę na odpowiedniej częstotliwości
+    frequency = frequency - step_value;  //docelowo frequency = frequency - krok      
+    AD9850.set_frequency(frequency);  //ustawiam syntezę na odpowiedniej częstotliwości
     show_frequency();                     //drukuję częstotliwość na wyświetlaczu za pomocą gotowej funkcji       
     enc_sum = 0;                          //reset zmiennej zliczającej impulsy enkodera
   }   
   delayMicroseconds(5);                    //małe opóźnienie dla prawidłowego działania enkodera
+  
 }
+
+//testowanie dostępnego RAMU
+/*
+int freeRam () {
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+}
+*/
 
