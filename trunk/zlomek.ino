@@ -3,11 +3,13 @@
 // wyświetlacza nokii 5110 i jakiegoś enkodera.
 // Projekt otwarty http://sp-hm.pl/thread-2164.html
 // SQ9MDD - początkowy szkielet programu v 1.0.0 - 1.0.5
-// SP6IFN - przejście na bibliotekę graficzną i parę zmian 1.0.5
+// SP6IFN - przejście na bibliotekę graficzną i parę zmian 1.0.5 s-metr
 // S_____ - 
 //
 //************************************************************************//
 /* CHANGELOG (nowe na górze)
+ 2014.10.20 - v.1.0.6 przepisany sposób wyświetlania danych (pozostał jeden znany bug do poprawki)
+ wyczyszczone komentarze, dodanie s-metra według pomysłu Rysia SP6IFN
  2014.10.20 - v.1.0.5 wymiana biblioteki wyświetlacza LCD
  2014.10.19 - v.1.0.4 wprowadzamy pośrednią kilka zmiennych do sekcji konfiguracji
  drobne czyszczenie kodu, poprawki w komentarzach
@@ -65,6 +67,8 @@ const long high_frequency_limit = 3800000;   //górny limit częstotliwości
 const long start_frequency = 3715000;        //częstotliwość startowa
 const long posrednia = -8000000;             //częstotliwość pośredniej, każdy dobiera swoją w zależności od konstrukcji radia
 long step_value = 100;                       //domyślny krok syntezy
+int s_metr_port = A5;                        //wejście dla s-metra
+const long s_metr_update_interval = 100;     //interwał odświeżania s-metra w msec
 //*****************************************************************************************************************************
 
 //zmienne wewnętrzne, 
@@ -72,6 +76,7 @@ long step_value = 100;                       //domyślny krok syntezy
 char buffor[] = "              ";            //zmienna pomocnicza do wyrzucania danych na lcd
 long frequency = start_frequency;            //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
 int enc_sum = 0;                             //zmienna pomocnicza do liczenia impulsów z enkodera
+long s_metr_update_time = 0;                 //zmienna pomocnicza do przechowywania czasu następnego uruchomienia s-metra
 
 //funkcja do obsługi wyświetlania zmiany częstotliwości
 void show_frequency(){
@@ -82,15 +87,15 @@ void show_frequency(){
   myGLCD.print(buffor,13,10);                //wyświetlamy duże cyfry na lcd 
   sprintf(buffor,".%03lu",f_sufix);          //konwersja danych do wyświetlenia (ładujemy częstotliwość do stringa i na ekran)
   myGLCD.setFont(SmallFont);                 //ustawiamy małą czcionkę
-  myGLCD.print(buffor,60,20);                //wyświetlamy małe cyfry na lcd 
+  myGLCD.print(buffor,60,19);                //wyświetlamy małe cyfry na lcd 
   myGLCD.update();                           //wysyłamy dane do bufora wyświetlacza
 }
 
-//funkcja do wyświetlania aktualnego kroku syntezera
+//funkcja do wyświetlania aktualnego kroku syntezera za pomocą podkreślenie odpowiedniej cyfry
 void show_step(){
        myGLCD.clrLine(0,28,83,28);          //czyszczę cała linię gdzie wyświetlam podkreślenie
        myGLCD.clrLine(0,29,83,29);          //czyszczę druga linię tak samo podkreśliniki są grube na dwa piksele
-  switch(step_value){
+  switch(step_value){                       //przełącznik reaguje na bieżącą wartość kroku syntezy
      case 100:
         myGLCD.drawLine(69, 28, 82, 28);    //pokreślam 100Hz
         myGLCD.drawLine(69, 29, 82, 29);    //pokreślam 100Hz
@@ -108,10 +113,10 @@ void show_step(){
         myGLCD.drawLine(27, 29, 35, 29);    //pokreślam 100kHz       
     break;    
   }
- myGLCD.update();  //jak już ustaliliśmy co rysujemy to wysyłamy do LCD 
+ myGLCD.update();  //jak już ustaliliśmy co rysujemy to wysyłamy to do LCD 
 }
 
-//funkcja zmieniajaca częstotliwość DDS-a
+//funkcja ustawiająca częstotliwość DDS-a
 void set_frequency(int plus_or_minus){
   if(plus_or_minus == 1){                                                        //jeśli na plus to dodajemy
     frequency = frequency + step_value;                                          //częstotliwość = częstotliwość + krok    
@@ -119,10 +124,25 @@ void set_frequency(int plus_or_minus){
   else if(plus_or_minus == -1){                                                  //jeśli na minus to odejmujemy
     frequency = frequency - step_value;                                          //częstotliwość = częstotliwość - krok    
   }
-  frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);   //limitowanie zmiennej 
-  long frequency_to_dds = abs(posrednia + frequency);                          //a tutaj obliczam częstotliwość wynikową 
-  AD9850.set_frequency(frequency_to_dds);                                      //ustawiam syntezę na odpowiedniej częstotliwości  
-  Serial.println(frequency_to_dds);
+  frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);     //limitowanie zmiennej 
+  long frequency_to_dds = abs(posrednia + frequency);                            //a tutaj obliczam częstotliwość wynikową 
+  AD9850.set_frequency(frequency_to_dds);                                        //ustawiam syntezę na odpowiedniej częstotliwości  
+  //Serial.println(frequency_to_dds);                                            //wypluwanie na rs-232 częstotliwości generatora (debugowanie)
+}
+
+//wskaźnik s-metra by nie przeszkadzał w pracy enkodera zrobiony jest na pseudo współdzieleniu czasu.
+//każdorazowe wykonanie tej funkcji przestawia czas następnego jej wykonania o czas podany w konfiguracji domyślnie 100msec
+void show_smetr(){                                
+  if(millis() >= s_metr_update_time){                              //sprawdzam czy już jest czas na wykonanie funkcji
+     myGLCD.clrLine(1, 45, 83, 45);                                //czyścimy stare wskazanie s-metra linia pierwsza
+     myGLCD.clrLine(1, 46, 83, 46);                                //czyścimy stare wskazanie s-metra linia druga
+     int s_value = analogRead(A5);                                 //czytamy wartość z wejścia gdzie jest podpięty sygnał s-metra
+     int s_position = map(s_value,0,1023,1,83);                    //przeskalowuję zakres z wejścia analogowego na szerokość wyświetlacza
+     myGLCD.drawLine(1, 45, s_position, 45);                       //rysuję nową linię wskazania s metra
+     myGLCD.drawLine(1, 46, s_position, 46);                       //rysuję nową linię wskazania s metra
+     myGLCD.update();                                              //wysyłam dane do bufora wyświetlacza
+     s_metr_update_time = millis() + s_metr_update_interval;       //ustawiam czas kolejnego wykonania tej funkcji
+  }
 }
 
 //tutaj rysujemy domyślne elementy ekranu będziemy to robić raz,
@@ -131,28 +151,27 @@ void show_template(){
   myGLCD.setFont(TinyFont);                           //najmniejsza czcionka
   myGLCD.print("S1.3.5.7.9.+20.40.60.", CENTER, 38);  //opis dla s-metra
   myGLCD.drawRect(0, 44, 83, 47);                     //rysujemy prostokąt dla s-metra podając koordynaty narożników
-  myGLCD.setFont(SmallFont);                          //zmiana czcionki
-  myGLCD.print("RX",0,0);                             //tutaj zapalamy sygnalizację odbioru
   myGLCD.update();                                    //i wypluwamy to na lcd
 }
 
 // setup funkcja odpalana przy starcie
 void setup(){  
-  Serial.begin(9600);                         //uruchamiam port szeregowy w celach diagnostycznych       
-  myGLCD.InitLCD(kontrast);                   //odpalamy lcd ustawiamy kontrast
-  pinMode(step_input,INPUT_PULLUP);           //inicjalizujemy wejście zmiany kroku i podciągamy je do plusa
-  set_frequency(0);                           //odpalamy syntezer i ustawiamy częstotliwość startową 
-  delay(1000);                                //sekunda opóźnienia   
-  show_frequency();                           //pokazujemy częstotliwość na lcd
-  show_step();                                //pokazujemy krok syntezy
-  show_template();                            //pokazujemy domyślne stałe elementy LCD
+  pinMode(s_metr_port,INPUT);
+  Serial.begin(9600);                     //uruchamiam port szeregowy w celach diagnostycznych       
+  myGLCD.InitLCD(kontrast);               //odpalamy lcd ustawiamy kontrast
+  pinMode(step_input,INPUT_PULLUP);       //inicjalizujemy wejście zmiany kroku i podciągamy je do plusa
+  set_frequency(0);                       //odpalamy syntezer i ustawiamy częstotliwość startową 
+  delay(1000);                            //sekunda opóźnienia   
+  show_frequency();                       //pokazujemy częstotliwość na lcd
+  show_step();                            //pokazujemy krok syntezy
+  show_template();                        //pokazujemy domyślne stałe elementy LCD
 } 
 
 void loop(){  
   int enc = encoder.readEncoder();        //czytamy wartość z encodera
   if(enc != 0) {                          //jeśli wartość jest inna niż zero sumujemy
     enc_sum = enc_sum + enc;              //jeden ząbek encodera to +2 lub -2 tutaj to zliczam
-    Serial.println(enc);                  //wyrzucamy na port rs-232 wartość licznika enkodera (debugowanie)
+    //Serial.println(enc);                //wyrzucamy na port rs-232 wartość licznika enkodera (debugowanie)
   } 
 
   //obsługa klawisza zmiany kroku
@@ -189,7 +208,8 @@ void loop(){
     show_frequency();                     //drukuję częstotliwość na wyświetlaczu za pomocą gotowej funkcji       
     enc_sum = 0;                          //reset zmiennej zliczającej impulsy enkodera
   }   
-  delayMicroseconds(5);                    //małe opóźnienie dla prawidłowego działania enkodera
+  delayMicroseconds(5);                   //małe opóźnienie dla prawidłowego działania enkodera
+  show_smetr();
 }
 
 //testowanie ilości dostępnego RAMU 
