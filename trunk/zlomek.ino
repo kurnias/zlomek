@@ -8,6 +8,7 @@
 //
 //************************************************************************//
 /* CHANGELOG (nowe na górze)
+ 2014.10.20 - v.1.0.7 zmiana kierunku zmiany kroku syntezy, alternatywny sposób przeskalowania s-metra(sugestia SP9MRN)
  2014.10.20 - v.1.0.6 przepisany sposób wyświetlania danych (pozostał jeden znany bug do poprawki)
  wyczyszczone komentarze, dodanie s-metra według pomysłu Rysia SP6IFN
  2014.10.20 - v.1.0.5 wymiana biblioteki wyświetlacza LCD
@@ -138,6 +139,7 @@ void show_smetr(){
      myGLCD.clrLine(1, 46, 83, 46);                                //czyścimy stare wskazanie s-metra linia druga
      int s_value = analogRead(A5);                                 //czytamy wartość z wejścia gdzie jest podpięty sygnał s-metra
      int s_position = map(s_value,0,1023,1,83);                    //przeskalowuję zakres z wejścia analogowego na szerokość wyświetlacza
+     //int s_position = (s_value*10)>>7;                           //alternatywny sposób przeskalowania SP9MRN
      myGLCD.drawLine(1, 45, s_position, 45);                       //rysuję nową linię wskazania s metra
      myGLCD.drawLine(1, 46, s_position, 46);                       //rysuję nową linię wskazania s metra
      myGLCD.update();                                              //wysyłam dane do bufora wyświetlacza
@@ -179,17 +181,17 @@ void loop(){
     delay(100);                           //odczekajmy 100msec
     if(digitalRead(step_input) == LOW){   //jeśli klawisz nadal jest wcisnięty (czyli nie są to zakłócenia)
       switch(step_value){                 //za pomocą instrukcji swich zmieniamy krok
-      case 100000:                        //jeśli krok jest 100kHz ustaw 100Hz
-        step_value = 100;
-        break;
-      case 10000:                         //jeśli krok jest 10kHz ustaw 100kHz
-        step_value = 100000;
-        break;
-      case 1000:                          //jeśli krok jest 1kHz ustaw 10kHz
+      case 100000:                        //jeśli krok jest 100kHz ustaw 10kHz
         step_value = 10000;
         break;
-      case 100:                           //jeśli krok jest 100Hz ustaw 1kHz
+      case 10000:                         //jeśli krok jest 10kHz ustaw 1kHz
         step_value = 1000;
+        break;
+      case 1000:                          //jeśli krok jest 1kHz ustaw 100Hz
+        step_value = 100;
+        break;
+      case 100:                           //jeśli krok jest 100Hz ustaw 100kHz
+        step_value = 100000;
         break;
       }
     }
@@ -210,6 +212,7 @@ void loop(){
   }   
   delayMicroseconds(5);                   //małe opóźnienie dla prawidłowego działania enkodera
   show_smetr();
+  
 }
 
 //testowanie ilości dostępnego RAMU 
@@ -219,5 +222,5 @@ int freeRam () {
  int v;
  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
  }
- */
+*/
 
