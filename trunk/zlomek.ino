@@ -7,6 +7,8 @@
 // !!!Miejsce na twój znak dołącz do nas!!!
 //************************************************************************//
 /* CHANGELOG
+ 2014.11.18 - v.1.0.15 dodanie obsługi VFO A i B, poprawki w funkcji obsługującej wysyłkę częstotliwości do DDS
+ dodanie ekranu powitalnego i wyświetlanie numeru wersji firmware przy starcie syntezy.
  2014.11.14 - v.1.0.14 czyszczenie kodu, poprawki w komentarzach, zmiana pinologi (LCD) pod PCB SQ9MDD, 
  uruchomienie regulacji jasności podświetlenia LCD DIM = 0 - pełna jasność DIM = 100 pełne ściemnienie
  2014.10.30 - v.1.0.13 poprawka zmiennych long dla liczenia czasu, drobne poprawki w kodzie, naprawa RIT-a
@@ -32,6 +34,7 @@
  2014.05.22 - pierwsza wersja kodu warsztaty arduino w komorowie.  
  */
 //************************************************************************//
+#define software_version "1.0.15"
 
 //podłączamy bibliotekę syntezera
 #include <AH_AD9850.h>
@@ -79,6 +82,7 @@ const int pulses_for_groove = 2;                      //ilość impulsów na zą
 const long low_frequency_limit = 1000000;             //dolny limit częstotliwości
 const long high_frequency_limit = 7300000;            //górny limit częstotliwości
 const long start_frequency = 3715000;                 //częstotliwość startowa syntezy
+const long start_frequency_vfo_b = 3710000;
 const long if_frequency = -8000000;                   //częstotliwość pośredniej, każdy dobiera swoją w zależności od konstrukcji radia
 const int mode = 0;                                   //tryby pracy: 0-pośrednia, 1-generator, 2-lub wyżej, mnożnik razy 2 lub więcej
 long step_value = 1000;                               //domyślny krok syntezy
@@ -90,20 +94,24 @@ const int dim_step = 10;                              //krok ściemniania warto�
 //*****************************************************************************************************************************
 //zmienne wewnętrzne pomocnicze, czyli zmienne które są nadpisywane automatycznie w trakcie działania programu
 //jeśli nie trzeba proszę ich nie modyfikować. 
-char buffor[] = "              ";            //zmienna pomocnicza do wyrzucania danych na lcd
-long frequency = start_frequency;            //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
-int enc_sum = 0;                             //zmienna pomocnicza do liczenia impulsów z enkodera
-unsigned long s_metr_update_time = 0;        //zmienna pomocnicza do przechowywania czasu następnego uruchomienia s-metra
-long frequency_to_dds = 0;                   //zmienna pomocnicza przechowuje częstotliwość którą wysyłam do DDS-a
-int rit_state = 0;                           //stan RIT-a 0-rit off, 1-rit on, 2-rit on enkoder odchyłkę rit 
-boolean ptt_on = false;                      //stan przycisku PTT
-boolean last_ptt_state = false;              //poprzedni stan PTT potrzebne do wykrywania zmianu stanu PTT
-long rit_frequency = 0;                      //domyślna wartość poprawki
-int dim_state = 0;                           //stan obsługi DIM 0-dim on, 1-dim on encoder pracuje na zmianę dim
-int dim_value = dim_default;                 //wartosc ściemnienia podświetlacza 0 - brak ściemnienia 100 - pełne ściemnienie
-boolean step_button_pressed = false;         //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia klawisz krok syntezy
-boolean rit_button_pressed = false;          //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia klawisz rit
-boolean dim_button_pressed = false;          //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia klawisz przyciemnienia lcd
+char buffor[] = "              ";              //zmienna pomocnicza do wyrzucania danych na lcd
+long frequency = start_frequency;              //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
+long frequency_vfo_a = start_frequency;
+long frequency_vfo_b = start_frequency_vfo_b;
+int vfo_state = 0;                             //0 - vfo A, 1 - vfo B
+int enc_sum = 0;                               //zmienna pomocnicza do liczenia impulsów z enkodera
+unsigned long s_metr_update_time = 0;          //zmienna pomocnicza do przechowywania czasu następnego uruchomienia s-metra
+long frequency_to_dds = 0;                     //zmienna pomocnicza przechowuje częstotliwość którą wysyłam do DDS-a
+int rit_state = 0;                             //stan RIT-a 0-rit off, 1-rit on, 2-rit on enkoder odchyłkę rit 
+boolean ptt_on = false;                        //stan przycisku PTT
+boolean last_ptt_state = false;                //poprzedni stan PTT potrzebne do wykrywania zmianu stanu PTT
+long rit_frequency = 0;                        //domyślna wartość poprawki
+int dim_state = 0;                             //stan obsługi DIM 0-dim on, 1-dim on encoder pracuje na zmianę dim
+int dim_value = dim_default;                   //wartosc ściemnienia podświetlacza 0 - brak ściemnienia 100 - pełne ściemnienie
+boolean step_button_pressed = false;           //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia klawisz krok syntezy
+boolean rit_button_pressed = false;            //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia klawisz rit
+boolean dim_button_pressed = false;            //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia klawisz przyciemnienia lcd
+boolean vfo_button_pressed = false;            //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia klawisz zmiany VFO
 //*****************************************************************************************************************************
 
 //FUNKCJE
@@ -162,7 +170,8 @@ void show_step(){
 
 //funkcja ustawiająca częstotliwość DDS-a, lub RIT-a
 void set_frequency(int plus_or_minus){
-  if(dim_state == 0){
+  int correction = 0;                                                                //lokalna zmienna pomocnicza
+  if(dim_state == 0){                                                                //jeśli nie jest włączona obsługa ściemniania (DIM) to realizujemy resztę funkcjonalności
     if(rit_state == 2 || rit_state == 0){                                            //jeśli nie obsługuję RIT-a to manipuluje częstotliwością 
       if(plus_or_minus == 1){                                                        //jeśli na plus to dodajemy
         frequency = frequency + step_value;                                          //częstotliwość = częstotliwość + krok    
@@ -179,11 +188,22 @@ void set_frequency(int plus_or_minus){
         rit_frequency = rit_frequency - rit_step;                                    //częstotliwość poprawki zmniejszam o krok poprawki    
       }
     rit_frequency = constrain(rit_frequency,-rit_range,rit_range);                   //limitujemy poprawkę RIT do wartości z konfiguracji
-  }
-    int correction = 0;                                                              //lokalna zmienna pomocnicza
+    }
     if(rit_state != 0 && ptt_on == false){                                           //jeśli jesteśmy w trybie włączonego RIT-a
       correction = rit_frequency;                                                    //lokalna zmienna pomocnicza przyjmuje wartość RIT by można to było dodać do czestotliwości 
     }
+ 
+  }
+  else{
+      if(plus_or_minus == 1){                                                        //jeśli na plus to odejmujemy (odwrotna logika bo ściemniam)
+         dim_value = dim_value - dim_step;                                           //obliczanie wartości przyciemnienia
+      }  
+      else if(plus_or_minus == -1){                                                  //jeśli na minus to dodajemy (odwrotna logika bo ściemniam)
+         dim_value = dim_value + dim_step;                                           //obliczanie wartości przyciemnienia
+      }
+     dim_value = constrain(dim_value,0,100);                                         //ograniczam wartości przyciemnienia od 0% do 100%
+     analogWrite(dim_out,(map(dim_value,100,0,0,255)));                              //zmieniam wysterowanie PWM, 100% przyciemnienia to 0PWM a 0% przyciemnienia to 255PWM      
+  }
   
     frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);       //limitowanie zmiennej częstotliwości tej na wyświetlaczu 
     if(mode == 0){                                                                   //zmiana trybu pracy syntezy 0 - pośrednia
@@ -191,19 +211,8 @@ void set_frequency(int plus_or_minus){
     }else{                                                                           //tryby pracy 1 - mnożnik * 1 generator lub 2 i więcej mnożnik
       frequency_to_dds = (frequency + correction) * mode;                            //mnożymy częstotliwość przez tryb pracy no i pamiętamy o poprawce
     }
-    AD9850.set_frequency(frequency_to_dds);                                          //ustawiam syntezę na odpowiedniej częstotliwości  
-    }
-  else{
-      if(plus_or_minus == 1){                                                        //jeśli na plus to odejmujemy (odwrotna logika bo ściemniam)
-         dim_value = dim_value - dim_step;
-      }  
-      else if(plus_or_minus == -1){                                                  //jeśli na minus to dodajemy (odwrotna logika bo ściemniam)
-         dim_value = dim_value + dim_step;  
-      }
-     dim_value = constrain(dim_value,0,100);
-     analogWrite(dim_out,(map(dim_value,100,0,0,255)));
-     //Serial.println(dim_value); 
-  }
+    AD9850.set_frequency(frequency_to_dds);                                          //ustawiam syntezę na odpowiedniej częstotliwości   
+    Serial.println(frequency_to_dds);                                                //debugowanie
 }
 
 //wskaźnik s-metra by nie przeszkadzał w pracy enkodera zrobiony jest na pseudo współdzieleniu czasu.
@@ -244,7 +253,7 @@ void rit_swich(){
      myGLCD.clrLine(28, 8, 51, 8);              //anauluję podkreślenie wartości RIT
      myGLCD.clrLine(72,0,83,0);                 //anuluję oznaczenie rit
      myGLCD.clrLine(72,8,83,8);                 //anuluję oznaczenie rit
-     sprintf(buffor,"        ",rit_frequency);  //czyszczę miejsce po wartości RIT gdy pracujemy bez niego
+     sprintf(buffor,"       ");                 //czyszczę miejsce po wartości RIT gdy pracujemy bez niego
      myGLCD.print(buffor,CENTER,2);             //przygotowuję dane do wysyłki na LCD
   break; 
  }
@@ -261,11 +270,31 @@ void dim_switch(){
      myGLCD.clrLine(12,8,23,8);                //gaszę podkreślenie   
     break;
     case 1:
-     myGLCD.drawLine(12,0,23,0);                //podkreślam oznaczenie DIM
-     myGLCD.drawLine(12,8,23,8);                //podkreślam oznaczenie DIM   
+     myGLCD.drawLine(12,0,23,0);               //podkreślam oznaczenie DIM
+     myGLCD.drawLine(12,8,23,8);               //podkreślam oznaczenie DIM   
     break; 
   }
  myGLCD.update();                              //i wypluwamy to na lcd 
+}
+
+//funkcja do obsługi zmiany VFO
+void change_vfo(){
+  myGLCD.setFont(TinyFont);                    //mała czcionka
+  switch(vfo_state){                           //sprawdzam jakie VFO zostało wybrane
+     case 0:                                   //jeśli A to:
+      myGLCD.print("V/A", 56,2);               //sygnalizuję które VFO pracuje
+      frequency_vfo_b = frequency;             //zawartość częstotliwość odkładam do pamięci VFO B
+      frequency = frequency_vfo_a;             //wczytuję zawartość częstotliwości z pamięci VFO A
+     break;
+     case 1:
+      myGLCD.print("V/B", 56,2);               //sygnalizuję które VFO pracuje
+      frequency_vfo_a = frequency;             //zawartość częstotliwość odkładam do pamięci VFO A
+      frequency = frequency_vfo_b;             //wczytuję zawartość częstotliwości z pamięci VFO B
+     break;
+  }
+  set_frequency(0);                            //ustawiam częstotliwość dla syntezera
+  show_frequency();                            //pokazuję częstotliwość na LCD
+  delay(200);                                  //male opóźnienie
 }
 
 //sygnalizacja PTT (sygnalizacja to skutek uboczny dla RIT-a musimy wiedzieć czy odbieramy czy nadajemy)
@@ -291,6 +320,7 @@ void ptt_switch(){
 void show_template(){
   myGLCD.setFont(TinyFont);                           //najmniejsza czcionka
   myGLCD.print("RX", 0,2);                            //Sygnalizacja TX RX będzie tutaj
+  myGLCD.print("V/A", 56,2);                          //startuję od VFO A
   myGLCD.print("RIT", 72,2);                          //Sygnalizacja pracy RIT-u tutaj
   myGLCD.print("DIM", 12,2);                          //sygnalizacja przyciemniania LCD (DIM)
   myGLCD.print("S1.3.5.7.9.+20.40.60.", CENTER, 38);  //opis dla s-metra
@@ -306,16 +336,22 @@ void setup(){
   pinMode(ptt_input,INPUT_PULLUP);              //ustawiam tryb pracy wejścia PTT
   pinMode(buttons_input,INPUT);                 //inicjalizujemy wejście do którego mamy wpięte przyciski  
   pinMode(dim_out,OUTPUT);                      //ustawiam tryb pracy wyjścia dla ściemniania LCD (DIM)
-  //Serial.begin(9600);                           //uruchamiam port szeregowy w celach diagnostycznych       
+  Serial.begin(9600);                           //uruchamiam port szeregowy w celach diagnostycznych       
   myGLCD.InitLCD(contrast);                     //odpalamy lcd ustawiamy kontrast
   myGLCD.clrScr();                              //czyścimy ekran z ewentualnych śmieci
-  int dim_pwm = map(dim_default,100,0,0,255);   //ustawiam domyślne podświetlenia LCD
-  analogWrite(dim_out,dim_pwm);                 //odpalamy startowy poziom jasnosci 
+  myGLCD.setFont(TinyFont);                     //czas na reklame, mała czcionka
+  myGLCD.print("Zlomek ver.",0,2);              //lokowanie produktu przy starcie
+  myGLCD.print(software_version, 48,2);         //numer wersji
+  myGLCD.update(); 
+  int dim_pwm = map(dim_default,100,0,0,255);   //ustawiam domyślne podświetlenia LCD 
+  analogWrite(dim_out,dim_pwm);                 //odpalamy startowy poziom jasnosci  
+  delay(3000);                                  //opoznienie   
+  myGLCD.clrScr();                              //koniec reklam czyscimy ekran
   set_frequency(0);                             //odpalamy syntezer i ustawiamy częstotliwość startową 
-  delay(1000);                                  //sekunda opóźnienia   
   show_frequency();                             //pokazujemy częstotliwość na lcd
   show_step();                                  //pokazujemy krok syntezy
   show_template();                              //pokazujemy domyślne stałe elementy LCD
+  
 } 
 
 //pętla główna programu
@@ -332,7 +368,7 @@ void loop(){
   if(analogRead(buttons_input) < 1000){        //jeśli cokolwiek jest wciśnięte to sprawdźmy co to
     delay(10);                                 //male opoźnienie by się ustabilizował stan
     int adc_value = analogRead(buttons_input);
-    //Serial.println(adc_value);                 //w tym miejscu sprawdzisz jaka wartość ma wcisnięty klawisz patrz port RS232 debugowanie
+    Serial.println(adc_value);                 //w tym miejscu sprawdzisz jaka wartość ma wcisnięty klawisz patrz port RS232 debugowanie
       if(adc_value < 10){                      //pierwszy przycisk
        step_button_pressed = true;
       }
@@ -341,11 +377,15 @@ void loop(){
       }
       if(adc_value > 120 && adc_value < 220){  //trzeci przycisk
         dim_button_pressed = true;
-      }  
+      } 
+      if(adc_value > 220 && adc_value < 320){  //trzeci przycisk
+        vfo_button_pressed = true;
+      }      
   }else{                                       //w każdym innym przypadku resetujemy flagi przycisków
       step_button_pressed = false;             //reset przycisku step
       rit_button_pressed = false;              //przycisk rita
       dim_button_pressed = false;              //przycisk przyciemniania LCD
+      vfo_button_pressed = false;              //przycisk zmiany VFO
   }
 
   //obsługa enkodera
@@ -420,6 +460,19 @@ void loop(){
     dim_switch();
     delay(200); 
     }
+    
+  //obsługa klawisza przełączenia VFO
+   if(vfo_button_pressed == true){
+     switch(vfo_state){
+       case 0:
+         vfo_state = 1;
+       break;
+       case 1:
+         vfo_state = 0;
+       break;
+     }
+      change_vfo();
+   }
     
 //wywołuję funkcję do obsługi s-metra    
 show_smetr();                               
