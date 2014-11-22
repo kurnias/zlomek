@@ -8,6 +8,8 @@
 //
 //************************************************************************//
 /* CHANGELOG (nowe na górze)
+ 2014.10.21 - v.1.0.8 dodałem możliwość pracy jako GEN lub SDR czyli dowolny mnożnik częstotliwości od 1 w zwyż, 
+ patrz opcje konfiguracji, dodałem alternatywny sposób przeskalowania SP9MRN, zakomentowane można użyć zamiast MAP
  2014.10.20 - v.1.0.7 zmiana kierunku zmiany kroku syntezy, alternatywny sposób przeskalowania s-metra(sugestia SP9MRN)
  2014.10.20 - v.1.0.6 przepisany sposób wyświetlania danych (pozostał jeden znany bug do poprawki)
  wyczyszczone komentarze, dodanie s-metra według pomysłu Rysia SP6IFN
@@ -64,10 +66,11 @@ const int kontrast = 70;                     //kontrast wyświetlacza
 const int pulses_for_groove = 2;             //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
 const int step_input = A2;                   //wejście do podłączenia przełącznika zmiany kroku
 const long low_frequency_limit = 3500000;    //dolny limit częstotliwości
-const long high_frequency_limit = 3800000;   //górny limit częstotliwości
+const long high_frequency_limit = 7200000;   //górny limit częstotliwości
 const long start_frequency = 3715000;        //częstotliwość startowa
 const long posrednia = -8000000;             //częstotliwość pośredniej, każdy dobiera swoją w zależności od konstrukcji radia
-long step_value = 100;                       //domyślny krok syntezy
+const int tryb_pracy = 0;                    //tryby pracy: 0-pośrednia, 1-generator, 2-lub wyżej, mnożnik razy 2 lub więcej
+long step_value = 1000;                      //domyślny krok syntezy
 int s_metr_port = A5;                        //wejście dla s-metra
 const long s_metr_update_interval = 100;     //interwał odświeżania s-metra w msec
 //*****************************************************************************************************************************
@@ -78,14 +81,15 @@ char buffor[] = "              ";            //zmienna pomocnicza do wyrzucania 
 long frequency = start_frequency;            //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
 int enc_sum = 0;                             //zmienna pomocnicza do liczenia impulsów z enkodera
 long s_metr_update_time = 0;                 //zmienna pomocnicza do przechowywania czasu następnego uruchomienia s-metra
+long frequency_to_dds = 0;                   //zmienna pomocnicza przechowuje częstotliwość którą wysyłam do DDS-a
 
 //funkcja do obsługi wyświetlania zmiany częstotliwości
 void show_frequency(){
   long f_prefix = frequency/1000;            //pierwsza część częstotliwości dużymi literkami
   long f_sufix = frequency%1000;             //obliczamy resztę z częstotliwości
-  sprintf(buffor,"%lu",f_prefix);            //konwersja danych do wyświetlenia (ładujemy częstotliwość do stringa i na ekran)
+  sprintf(buffor,"%05lu",f_prefix);          //konwersja danych do wyświetlenia (ładujemy częstotliwość do stringa i na ekran)
   myGLCD.setFont(MediumNumbers);             //ustawiamy czcionkę dla dużych cyfr  
-  myGLCD.print(buffor,13,10);                //wyświetlamy duże cyfry na lcd 
+  myGLCD.print(buffor,1,10);                 //wyświetlamy duże cyfry na lcd 
   sprintf(buffor,".%03lu",f_sufix);          //konwersja danych do wyświetlenia (ładujemy częstotliwość do stringa i na ekran)
   myGLCD.setFont(SmallFont);                 //ustawiamy małą czcionkę
   myGLCD.print(buffor,60,19);                //wyświetlamy małe cyfry na lcd 
@@ -125,10 +129,14 @@ void set_frequency(int plus_or_minus){
   else if(plus_or_minus == -1){                                                  //jeśli na minus to odejmujemy
     frequency = frequency - step_value;                                          //częstotliwość = częstotliwość - krok    
   }
-  frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);     //limitowanie zmiennej 
-  long frequency_to_dds = abs(posrednia + frequency);                            //a tutaj obliczam częstotliwość wynikową 
+  frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);     //limitowanie zmiennej częstotliwości tej na wyświetlaczu 
+  if(tryb_pracy == 0){                                                           //zmiana trybu pracy syntezy 0 - pośrednia
+    frequency_to_dds = abs(posrednia + frequency);                               //a tutaj obliczam częstotliwość wynikową dla pracy w trybie pośredniej 
+  }else{                                                                         //tryby pracy 1 - mnożnik * 1 generator lub 2 i więcej mnożnik
+    frequency_to_dds = frequency * tryb_pracy;                                   //mnożymy częstotliwość przez tryb pracy
+  }
   AD9850.set_frequency(frequency_to_dds);                                        //ustawiam syntezę na odpowiedniej częstotliwości  
-  //Serial.println(frequency_to_dds);                                            //wypluwanie na rs-232 częstotliwości generatora (debugowanie)
+  //Serial.println(frequency_to_dds);                                              //wypluwanie na rs-232 częstotliwości generatora (debugowanie)
 }
 
 //wskaźnik s-metra by nie przeszkadzał w pracy enkodera zrobiony jest na pseudo współdzieleniu czasu.
@@ -161,6 +169,7 @@ void setup(){
   pinMode(s_metr_port,INPUT);
   Serial.begin(9600);                     //uruchamiam port szeregowy w celach diagnostycznych       
   myGLCD.InitLCD(kontrast);               //odpalamy lcd ustawiamy kontrast
+  myGLCD.clrScr();
   pinMode(step_input,INPUT_PULLUP);       //inicjalizujemy wejście zmiany kroku i podciągamy je do plusa
   set_frequency(0);                       //odpalamy syntezer i ustawiamy częstotliwość startową 
   delay(1000);                            //sekunda opóźnienia   
@@ -174,6 +183,9 @@ void loop(){
   if(enc != 0) {                          //jeśli wartość jest inna niż zero sumujemy
     enc_sum = enc_sum + enc;              //jeden ząbek encodera to +2 lub -2 tutaj to zliczam
     //Serial.println(enc);                //wyrzucamy na port rs-232 wartość licznika enkodera (debugowanie)
+    //przesuwam w czasie kolejne wykonanie updejtu s-metra 
+    //bardzo topomaga przy szybkim kręceniu enkoderem, nie gubi wtedy kroków
+    s_metr_update_time = millis() + s_metr_update_interval;       
   } 
 
   //obsługa klawisza zmiany kroku
@@ -196,7 +208,7 @@ void loop(){
       }
     }
     show_step();                          //pokazuję zmianę kroku na lcd
-    delay(300);                           //zwłoka po zmianie kroku 300msec
+    delay(200);                           //zwłoka po zmianie kroku 200msec
   }
 
   //jesli zaliczyliśmy ząbek dodajemy lub odejmujemy do częstotliwości wartość kroku (na razie na sztywno 100Hz)
