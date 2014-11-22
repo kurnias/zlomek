@@ -7,6 +7,7 @@
 // !!!Miejsce na twój znak dołącz do nas!!!
 //************************************************************************//
 /* CHANGELOG
+ 2014.11.19 - v.1.0.16 opcjonalna zmiana napięcia odniesienia z 5V do 1.1V taki fjuczer bo przecie s-metr z radia QRP daje małe napięcie.
  2014.11.18 - v.1.0.15 dodanie obsługi VFO A i B, poprawki w funkcji obsługującej wysyłkę częstotliwości do DDS
  dodanie ekranu powitalnego i wyświetlanie numeru wersji firmware przy starcie syntezy.
  2014.11.14 - v.1.0.14 czyszczenie kodu, poprawki w komentarzach, zmiana pinologi (LCD) pod PCB SQ9MDD, 
@@ -34,7 +35,7 @@
  2014.05.22 - pierwsza wersja kodu warsztaty arduino w komorowie.  
  */
 //************************************************************************//
-#define software_version "1.0.15"
+#define software_version "1.0.16"
 
 //podłączamy bibliotekę syntezera
 #include <AH_AD9850.h>
@@ -91,13 +92,14 @@ const long rit_range = 2000;                          //zakres pracy RIT +/- pod
 const long rit_step = 50;                             //krok działania RIT-a domyślnie 50Hz
 const int dim_default = 50;                           //domyślna wartość przyciemnienia w %
 const int dim_step = 10;                              //krok ściemniania wartość w %
+const int bod_lvl = 0;                                //konfiguracja napięcia odniesienia 0 - 5V, 1 - 1.1V
 //*****************************************************************************************************************************
 //zmienne wewnętrzne pomocnicze, czyli zmienne które są nadpisywane automatycznie w trakcie działania programu
 //jeśli nie trzeba proszę ich nie modyfikować. 
 char buffor[] = "              ";              //zmienna pomocnicza do wyrzucania danych na lcd
 long frequency = start_frequency;              //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
-long frequency_vfo_a = start_frequency;
-long frequency_vfo_b = start_frequency_vfo_b;
+long frequency_vfo_a = start_frequency;        //wpisuję wartość bieżącą częstotliwości do komórki VFO A
+long frequency_vfo_b = start_frequency_vfo_b;  //do VFO B wpisuję wartość startową VFO B
 int vfo_state = 0;                             //0 - vfo A, 1 - vfo B
 int enc_sum = 0;                               //zmienna pomocnicza do liczenia impulsów z enkodera
 unsigned long s_metr_update_time = 0;          //zmienna pomocnicza do przechowywania czasu następnego uruchomienia s-metra
@@ -332,6 +334,9 @@ void show_template(){
 //FUNKCJE OBOWIĄZKOWE
 //setup funkcja odpalana przy starcie
 void setup(){  
+  if(bod_lvl == 1){                             //tutaj przy starcie ustawiam właściwe napięcie odniesienia
+    analogReference(INTERNAL);                  //dla ATmega168 i ATmega328, INTERNAL = 1.1V w arduino mega wpisujemy INTERNAL1V1 
+  }
   pinMode(s_metr_port,INPUT);                   //ustawiam tryb pracy wejścia s-metra
   pinMode(ptt_input,INPUT_PULLUP);              //ustawiam tryb pracy wejścia PTT
   pinMode(buttons_input,INPUT);                 //inicjalizujemy wejście do którego mamy wpięte przyciski  
@@ -369,16 +374,26 @@ void loop(){
     delay(10);                                 //male opoźnienie by się ustabilizował stan
     int adc_value = analogRead(buttons_input);
     Serial.println(adc_value);                 //w tym miejscu sprawdzisz jaka wartość ma wcisnięty klawisz patrz port RS232 debugowanie
-      if(adc_value < 10){                      //pierwszy przycisk
+
+      if(adc_value < 10){                      //pierwszy przycisk dowolne napięcie odniesienia (zwarcie do masy)
        step_button_pressed = true;
       }
-      if(adc_value > 10 && adc_value < 120){   //drugi przycisk
+      else if(adc_value > 10 && adc_value < 120 && bod_lvl == 0){   //drugi przycisk napiecie odniesienia 5V
         rit_button_pressed = true;
       }
-      if(adc_value > 120 && adc_value < 220){  //trzeci przycisk
+      else if(adc_value > 120 && adc_value < 220 && bod_lvl == 0){  //trzeci przycisk napiecie odniesienia 5V
         dim_button_pressed = true;
       } 
-      if(adc_value > 220 && adc_value < 320){  //trzeci przycisk
+      else if(adc_value > 220 && adc_value < 320 && bod_lvl == 0){  //czwarty przycisk napiecie odniesienia 5V
+        vfo_button_pressed = true;
+      }
+      else if(adc_value > 350 && adc_value < 500 && bod_lvl == 1){   //drugi przycisk napiecie odniesienia 1.1V
+        rit_button_pressed = true;
+      }
+      else if(adc_value > 500 && adc_value < 800 && bod_lvl == 1){  //trzeci przycisk napiecie odniesienia 1.1V
+        dim_button_pressed = true;
+      } 
+      else if(adc_value > 800 && adc_value < 1000 && bod_lvl == 1){  //czwarty przycisk napiecie odniesienia 1.1V
         vfo_button_pressed = true;
       }      
   }else{                                       //w każdym innym przypadku resetujemy flagi przycisków
