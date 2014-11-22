@@ -48,14 +48,14 @@ extern uint8_t MediumNumbers[];//czcionka z biblioteki
 RotaryEncoder encoder(A0,A1,5,6,1000);
 
 //kontrast wyświetlacza
-const int kontrast = 70; 
-const int pulses_for_groove = 2;
+const int kontrast = 70;                     //kontrast wyświetlacza
+const int pulses_for_groove = 2;             //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
 
 //zmienna pomocnicza do wyrzucania danych na lcd
 char buffor[] = "              ";
 
 //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
-long czestotliwosc = 28500000;
+long czestotliwosc = 10000000;
 
 //zmienna pomocnicza do liczenia impulsów z enkodera
 int enc_sum = 0;
@@ -63,7 +63,7 @@ int enc_sum = 0;
 //funkcja do obsługi wyświetlania zmiany częstotliwości
 void show_frequency(){
   lcd.setFont(SmallFont);                    //ustawiamy czcionkę
-  sprintf(buffor,"%lu",czestotliwosc);       //konwersja danych do wyświetlenia (ładujemy longa do stringa
+  sprintf(buffor,"%08lu",czestotliwosc);   //konwersja danych do wyświetlenia (ładujemy longa do stringa
   lcd.print(buffor,CENTER,0);                //wyświetlamy dane na lcd 
 }
 
@@ -86,14 +86,14 @@ void loop(){
     Serial.println(enc);
   } 
   //jesli zaliczyliśmy ząbek dodajemy lub odejmujemy do częstotliwości wartość kroku (na razie na sztywno 100Hz)
-  if(enc_sum >= 2){
+  if(enc_sum >= pulses_for_groove){
     czestotliwosc = czestotliwosc + 100;  //docelowo czestotliwosc = czestotliwosc + krok
 
     AD9850.set_frequency(czestotliwosc);  //ustawiam syntezę na odpowiedniej częstotliwości
     show_frequency();                     //drukuję częstotliwość na wyświetlaczu za pomocą gotowej funkcji
     enc_sum = 0;                          //reset zmiennej zliczającej impulsy enkodera
   }
-  if(enc_sum <= -2){
+  if(enc_sum <= -(pulses_for_groove)){
     czestotliwosc = czestotliwosc - 100;  //docelowo czestotliwosc = czestotliwosc - krok      
     AD9850.set_frequency(czestotliwosc);  //ustawiam syntezę na odpowiedniej częstotliwości
     show_frequency();                     //drukuję częstotliwość na wyświetlaczu za pomocą gotowej funkcji       
