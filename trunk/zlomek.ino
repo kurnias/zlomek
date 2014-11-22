@@ -8,7 +8,9 @@
 //
 //************************************************************************//
 /* CHANGELOG (nowe na górze)
- 2014.10.14 - zmiana kroku syntezy
+ 2014.10.15 - v.1.0.3 limit czestotliwości górnej i dolnej
+ przeniesienie wysyłania częstotliwości do DDS do osobnej funkcji
+ 2014.10.14 - v.1.0.2 zmiana kroku syntezy
  2014.10.12 - początek projektu wspólnego na sp-hm.pl
  wymiana biblioteki wyświetlacza lcd na LCDD5110 basic
  2014.05.22 - pierwsza wersja kodu warsztaty arduino w komorowie.  
@@ -52,6 +54,8 @@ RotaryEncoder encoder(A0,A1,5,6,1000);
 const int kontrast = 70;                     //kontrast wyświetlacza
 const int pulses_for_groove = 2;             //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
 const int step_input = A2;                   //wejście do podłączenia przełącznika zmiany kroku
+const long low_frequency_limit = 50000;      //dolny limit częstotliwości
+const long high_frequency_limit = 30000000;  //górny limit częstotliwości
 
 //zmienne wewnętrzne, 
 //jeśli nie trzeba proszę nie modyfikować
@@ -59,8 +63,6 @@ char buffor[] = "              ";            //zmienna pomocnicza do wyrzucania 
 long frequency = 10000000;                   //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
 long step_value = 100;                       //domyślny krok syntezy
 int enc_sum = 0;                             //zmienna pomocnicza do liczenia impulsów z enkodera
-
-//funkcja do zmiany kroku syntezy
 
 //funkcja do obsługi wyświetlania zmiany częstotliwości
 void show_frequency(){
@@ -74,6 +76,18 @@ void show_step(){
   lcd.setFont(SmallFont);                     //ustawiamy czcionkę
   sprintf(buffor,"%08lu",step_value);         //konwersja danych do wyświetlenia (ładujemy longa do stringa
   lcd.print(buffor,CENTER,8);                 //wyświetlamy dane na lcd (8 oznacza drugi rząd) 
+}
+
+//funkcja zmieniajaca częstotliwość DDS-a
+void set_frequency(int plus_or_minus){
+  if(plus_or_minus == 1){                          //jeśli na plus to dodajemy
+    frequency = frequency + step_value;            //częstotliwość = częstotliwość + krok    
+  }
+  else if(plus_or_minus == -1){                    //jeśli na minus to odejmujemy
+    frequency = frequency - step_value;            //częstotliwość = częstotliwość - krok    
+  }
+    frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);              //limitowanie zmiennej            
+    AD9850.set_frequency(frequency);  //ustawiam syntezę na odpowiedniej częstotliwości  
 }
 
 // setup funkcja odpalana przy starcie
@@ -119,20 +133,16 @@ void loop(){
   
   //jesli zaliczyliśmy ząbek dodajemy lub odejmujemy do częstotliwości wartość kroku (na razie na sztywno 100Hz)
   if(enc_sum >= pulses_for_groove){
-    frequency = frequency + step_value;  //docelowo frequency = frequency + krok
-
-    AD9850.set_frequency(frequency);  //ustawiam syntezę na odpowiedniej częstotliwości
+    set_frequency(1);                     //wywołuję funkcje zmiany częstotliwości z parametrem +
     show_frequency();                     //drukuję częstotliwość na wyświetlaczu za pomocą gotowej funkcji
     enc_sum = 0;                          //reset zmiennej zliczającej impulsy enkodera
   }
   if(enc_sum <= -(pulses_for_groove)){
-    frequency = frequency - step_value;  //docelowo frequency = frequency - krok      
-    AD9850.set_frequency(frequency);  //ustawiam syntezę na odpowiedniej częstotliwości
+    set_frequency(-1);                    //wywołuję funkcje zmiany częstotliwości z parametrem -
     show_frequency();                     //drukuję częstotliwość na wyświetlaczu za pomocą gotowej funkcji       
     enc_sum = 0;                          //reset zmiennej zliczającej impulsy enkodera
   }   
   delayMicroseconds(5);                    //małe opóźnienie dla prawidłowego działania enkodera
-  
 }
 
 //testowanie dostępnego RAMU
