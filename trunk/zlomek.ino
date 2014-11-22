@@ -7,6 +7,7 @@
 // !!!Miejsce na twój znak dołącz do nas!!!
 //************************************************************************//
 /* CHANGELOG
+ 2014.10.30 - v.1.0.13 poprawka zmiennych long dla liczenia czasu, drobne poprawki w kodzie, naprawa RIT-a
  2014.10.26 - v.1.0.12 wszystkie klawisze funkcyjne na jednym wejściu, przeniesienie lini TX z wejscia 12 na wejscie 2,
  przygotowujemy się do wiekszej liczby przycisków i nowych funkcji syntezera
  2014.10.24 - v.1.0.11 czyszczenie kodu, zmiana czcionki RIT, poprawki w komentarzach najmniejszy krok syntezy 50Hz, 
@@ -67,32 +68,32 @@ RotaryEncoder encoder(A0,A1,5,6,1000);
 
 //*****************************************************************************************************************************
 //zmienne do modyfikacji każdy ustawia to co potrzebuje
-const int buttons_input = A2;                //wejście do podłączenia szeregu przełączników
-const int s_metr_port = A5;                  //wejście dla s-metra
-const int ptt_input = 2;                     //wejście PTT procesor musi wiedzieć czy nadajemy czy odbieramy by zrealizować RIT-a
-const int contrast = 70;                     //kontrast wyświetlacza
-const int pulses_for_groove = 2;             //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
-const unsigned long low_frequency_limit = 3500000;    //dolny limit częstotliwości
-const unsigned long high_frequency_limit = 7200000;   //górny limit częstotliwości
-const unsigned long start_frequency = 3715000;        //częstotliwość startowa syntezy
-const unsigned long if_frequency = -8000000;          //częstotliwość pośredniej, każdy dobiera swoją w zależności od konstrukcji radia
-const int mode = 0;                          //tryby pracy: 0-pośrednia, 1-generator, 2-lub wyżej, mnożnik razy 2 lub więcej
-long step_value = 1000;                      //domyślny krok syntezy
+const int buttons_input = A2;                         //wejście do podłączenia szeregu przełączników
+const int s_metr_port = A5;                           //wejście dla s-metra
+const int ptt_input = 2;                              //wejście PTT procesor musi wiedzieć czy nadajemy czy odbieramy by zrealizować RIT-a
+const int contrast = 70;                              //kontrast wyświetlacza
+const int pulses_for_groove = 2;                      //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
+const long low_frequency_limit = 1000000;             //dolny limit częstotliwości
+const long high_frequency_limit = 30000000;           //górny limit częstotliwości
+const long start_frequency = 3715000;                 //częstotliwość startowa syntezy
+const long if_frequency = -8000000;                   //częstotliwość pośredniej, każdy dobiera swoją w zależności od konstrukcji radia
+const int mode = 0;                                   //tryby pracy: 0-pośrednia, 1-generator, 2-lub wyżej, mnożnik razy 2 lub więcej
+long step_value = 1000;                               //domyślny krok syntezy
 const unsigned long s_metr_update_interval = 100;     //interwał odświeżania s-metra w msec
-const unsigned long rit_range = 2000;                 //zakres pracy RIT +/- podana wartość, domyślnie 2000Hz max 9999Hz jeśli dasz wiecej posypie się wyświetlanie
-const unsigned long rit_step = 50;                    //krok działania RIT-a domyślnie 50Hz
+const long rit_range = 2000;                          //zakres pracy RIT +/- podana wartość, domyślnie 2000Hz max 9999Hz jeśli dasz wiecej posypie się wyświetlanie
+const long rit_step = 50;                             //krok działania RIT-a domyślnie 50Hz
 //*****************************************************************************************************************************
 //zmienne wewnętrzne pomocnicze, czyli zmienne które są nadpisywane automatycznie w trakcie działania programu
 //jeśli nie trzeba proszę ich nie modyfikować. 
 char buffor[] = "              ";            //zmienna pomocnicza do wyrzucania danych na lcd
-unsigned long frequency = start_frequency;   //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
+long frequency = start_frequency;            //zmienna dla częstotliwości, wstawiamy tam częstotliwość od której startujemy
 int enc_sum = 0;                             //zmienna pomocnicza do liczenia impulsów z enkodera
 unsigned long s_metr_update_time = 0;        //zmienna pomocnicza do przechowywania czasu następnego uruchomienia s-metra
-unsigned long frequency_to_dds = 0;          //zmienna pomocnicza przechowuje częstotliwość którą wysyłam do DDS-a
+long frequency_to_dds = 0;                   //zmienna pomocnicza przechowuje częstotliwość którą wysyłam do DDS-a
 int rit_state = 0;                           //stan RIT-a 0-rit off, 1-rit on, 2-rit on enkoder odchyłkę rit 
 boolean ptt_on = false;                      //stan przycisku PTT
 boolean last_ptt_state = false;              //poprzedni stan PTT potrzebne do wykrywania zmianu stanu PTT
-unsigned long rit_frequency = 0;             //domyślna wartość poprawki
+long rit_frequency = 0;                      //domyślna wartość poprawki
 boolean step_button_pressed = false;         //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia
 boolean rit_button_pressed = false;          //zmienna pomocnicza zapalam tę flagę gdy wartość z przetwornika adc jest odpowiednia
 //*****************************************************************************************************************************
@@ -174,6 +175,7 @@ void set_frequency(int plus_or_minus){
   if(rit_state != 0 && ptt_on == false){                                           //jeśli jesteśmy w trybie włączonego RIT-a
     correction = rit_frequency;                                                    //lokalna zmienna pomocnicza przyjmuje wartość RIT by można to było dodać do czestotliwości 
   }
+  
   frequency = constrain(frequency,low_frequency_limit,high_frequency_limit);       //limitowanie zmiennej częstotliwości tej na wyświetlaczu 
   if(mode == 0){                                                                   //zmiana trybu pracy syntezy 0 - pośrednia
     frequency_to_dds = abs(if_frequency + frequency + correction);                 //a tutaj obliczam częstotliwość wynikową dla pracy w trybie pośredniej + ew.poprawka z RIT
@@ -181,6 +183,8 @@ void set_frequency(int plus_or_minus){
     frequency_to_dds = (frequency + correction) * mode;                            //mnożymy częstotliwość przez tryb pracy no i pamiętamy o poprawce
   }
   AD9850.set_frequency(frequency_to_dds);                                          //ustawiam syntezę na odpowiedniej częstotliwości  
+  Serial.println(rit_state);
+  Serial.println(rit_frequency);
   Serial.println(frequency_to_dds);                                                //debugowanie
 }
 
@@ -366,8 +370,8 @@ void loop(){
  
   show_smetr();                               //wywołuję funkcję do obsługi s-metra
   //Serial.println(freeRam());                //testowanie ilości dostępnego RAM-u aby zadziałało należy odkomentować funkcję poniżej
-}
 
+}
 //KONIEC PROGRAMU
 //*****************************************************************************************************************************
 
