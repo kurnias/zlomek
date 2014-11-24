@@ -1,11 +1,9 @@
 //************************************************************************//
-// Złomek - kumpel Heńka, projekt pogladowy obsługi DDS AD9850, 
-// wyświetlacza nokii 5110 i jakiegoś enkodera.
+// Złomek - kumpel Heńka, DDS AD9850, 
+// wyświetlacz LCD 2x20, enkoder.
 // Projekt otwarty http://sp-hm.pl/thread-2164.html
-// SQ9MDD -  początkowy szkielet programu v 1.0.0
-// S_____ - 
-// S_____ - 
-//
+// SQ9MDD -  początkowy szkielet programu v 1.0.0 
+
 //************************************************************************//
 /* CHANGELOG (nowe na górze)
  2014.11.24 - v.1.1.4 Osobna gałąź przeznaczona dla klasycznego wyświetlacza 2x20
@@ -19,6 +17,7 @@
  2014.05.22 - pierwsza wersja kodu warsztaty arduino w komorowie.  
  */
 //************************************************************************//
+#define software_version "1.1.4"
 
 //podłączamy bibliotekę syntezera
 #include <AH_AD9850.h>
@@ -38,13 +37,15 @@
 AH_AD9850 AD9850(8, 9, 10, 11);
 
 // inicjalizujemy wyświetlacz
-// lcd    - arduino
-// sclk   - PIN 7
-// sdin   - PIN 6
-// dc     - PIN 5
-// reset  - PIN 3
-// sce    - PIN 4
-LiquidCrystal lcd(7,6,5,3,4,2); 
+// lcd      - arduino
+// RS       - PIN 7
+// ENABLE   - PIN 6
+// D1       - PIN 5
+// D2       - PIN 4
+// D3       - PIN 3
+// D4       - PIN 2
+//LCD R/W do masy
+LiquidCrystal lcd(7,6,5,4,3,2); 
 
 //inicjalizujemy enkoder
 //AO - w lewo
