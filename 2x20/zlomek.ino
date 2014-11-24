@@ -8,6 +8,7 @@
 //
 //************************************************************************//
 /* CHANGELOG (nowe na górze)
+ 2014.11.24 - v.1.1.4 Osobna gałąź przeznaczona dla klasycznego wyświetlacza 2x20
  2014.10.19 - v.1.0.4 wprowadzamy pośrednią kilka zmiennych do sekcji konfiguracji
  drobne czyszczenie kodu, poprawki w komentarzach
  2014.10.15 - v.1.0.3 limit czestotliwości górnej i dolnej
@@ -26,7 +27,7 @@
 #include <RotaryEncoder.h>;
 
 //podłączamy bibliotekę do obsługi wyświetlacza
-#include <LCD5110_Basic.h> 
+#include <LiquidCrystal.h> 
 
 //inicjalizujemy komunikację z syntezerem
 //syntezer   - arduino
@@ -43,9 +44,7 @@ AH_AD9850 AD9850(8, 9, 10, 11);
 // dc     - PIN 5
 // reset  - PIN 3
 // sce    - PIN 4
-LCD5110 lcd(7,6,5,3,4); 
-extern uint8_t SmallFont[]; //czcionka z biblioteki
-extern uint8_t MediumNumbers[];//czcionka z biblioteki
+LiquidCrystal lcd(7,6,5,3,4,2); 
 
 //inicjalizujemy enkoder
 //AO - w lewo
@@ -55,7 +54,6 @@ RotaryEncoder encoder(A0,A1,5,6,1000);
 
 //*****************************************************************************************************************************
 //zmienne do modyfikacji każdy ustawia to co potrzebuje
-const int kontrast = 70;                     //kontrast wyświetlacza
 const int pulses_for_groove = 2;             //ilość impulsów na ząbek enkodera zmienić w zależności od posiadanego egzemplarza
 const int step_input = A2;                   //wejście do podłączenia przełącznika zmiany kroku
 const long low_frequency_limit = 3500000;    //dolny limit częstotliwości
@@ -73,16 +71,14 @@ int enc_sum = 0;                             //zmienna pomocnicza do liczenia im
 
 //funkcja do obsługi wyświetlania zmiany częstotliwości
 void show_frequency(){
-  lcd.setFont(SmallFont);                    //ustawiamy czcionkę
   sprintf(buffor,"%08lu",frequency);         //konwersja danych do wyświetlenia (ładujemy częstotliwość do stringa i na ekran)
-  lcd.print(buffor,CENTER,0);                //wyświetlamy dane na lcd 
+  lcd.print(buffor);                //wyświetlamy dane na lcd 
 }
 
 //funkcja do wyświetlania aktualnego kroku syntezera
 void show_step(){
-  lcd.setFont(SmallFont);                     //ustawiamy czcionkę
   sprintf(buffor,"%08lu",step_value);         //konwersja danych do wyświetlenia (ładujemy krok syntezy do stringa i na ekran)
-  lcd.print(buffor,CENTER,8);                 //wyświetlamy dane na lcd (8 oznacza drugi rząd) 
+  lcd.print(buffor);                 //wyświetlamy dane na lcd (8 oznacza drugi rząd) 
 }
 
 //funkcja zmieniajaca częstotliwość DDS-a
@@ -102,7 +98,7 @@ void set_frequency(int plus_or_minus){
 // setup funkcja odpalana przy starcie
 void setup(){  
   Serial.begin(9600);                         //uruchamiam port szeregowy w celach diagnostycznych       
-  lcd.InitLCD(kontrast);                      //odpalamy lcd ustawiamy kontrast
+  lcd.begin(20, 2);
   pinMode(step_input,INPUT_PULLUP);           //inicjalizujemy wejście zmiany kroku i podciągamy je do plusa
   set_frequency(0);                           //odpalamy syntezer i ustawiamy częstotliwość startową 
   delay(1000);                                //sekunda opóźnienia   
